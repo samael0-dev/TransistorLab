@@ -560,7 +560,7 @@
         <div class="submodule-intro">
           <h3>3.2 Spiking Neuron (Leaky Integrate-and-Fire)</h3>
           <p>
-            Think of a leaky bucket. Each input pulse adds charge to a capacitor (C = 1 &mu;F), and a resistor (R = 100 k&Omega;) slowly leaks it away. When the voltage reaches 1 V, the neuron fires a spike and resets to 0 V. Unlike the perceptron, timing matters: drag the pulse rate up and the charge builds faster than it leaks, so the neuron fires more often.
+            Think of a leaky bucket. Input pulses charge a membrane capacitor (C<sub>1</sub> = 1 &mu;F) through diode D<sub>1</sub>, while a parallel resistor (R<sub>2</sub> = 100 k&Omega;) slowly leaks charge to ground. When membrane voltage V<sub>MEM</sub> crosses &sim;1.9 V, a complementary transistor pair (BC547 NPN + BC557 PNP) triggers regeneratively, dumping charge through R<sub>6</sub> to fire an output spike (&sim;1.1 V) and resetting V<sub>MEM</sub> to &sim;0.6 V. Drag the pulse rate to see timing dynamics: higher frequencies overcome passive leakage to trigger repetitive spikes.
           </p>
         </div>
 
@@ -600,6 +600,34 @@
             </div>
           </div>
         </div>
+
+        <!-- Asset Showcase: KiCad Schematic and ngspice Simulation Benchmarks -->
+        <div class="asset-showcase-section">
+          <h4 class="showcase-title">KiCad Schematic &amp; ngspice Bench Verification</h4>
+          <div class="asset-gallery-grid">
+            <div class="gallery-card" data-lightbox="assets/spiking-neuron-schematic.jpg" data-caption="KiCad Schematic: Two-transistor leaky integrate-and-fire (LIF) spiking neuron circuit. Input pulses through R1 (22k) and D1 (1N4148) charge membrane capacitor C1 (1µF), while R2 (100k) slowly leaks charge to ground. When VMEM passes ~1.9 V (set by R3=220k/R4=82k divider), Q2 (BC557 PNP) and Q1 (BC547 NPN) snap on regeneratively, discharging C1 through R6 (100Ω) to emit a sharp spike (~1.1 V) on OUT, resetting VMEM to ~0.6 V.">
+              <div class="gallery-img-container">
+                <img src="assets/spiking-neuron-schematic.jpg" alt="KiCad Two-Transistor Spiking Neuron Schematic" class="gallery-thumb">
+                <span class="gallery-zoom-badge">🔍 Zoom Schematic</span>
+              </div>
+              <div class="gallery-info">
+                <strong>KiCad Schematic: Two-Transistor Spiking Neuron</strong>
+                <span>BC547 (NPN) &amp; BC557 (PNP) regenerative pair &bull; C1=1&mu;F, R2=100k&Omega; leak</span>
+              </div>
+            </div>
+
+            <div class="gallery-card" data-lightbox="assets/spiking-neuron-simulation.jpg" data-caption="ngspice Simulation: Two-transistor spiking neuron transient response under 5 ms input pulses. At 50 Hz, VMEM integrates across pulses and fires 7 spikes in 0.4 s (16 spikes/s). At 100 Hz, accelerated charging overcomes passive leakage, firing 13 spikes in 0.4 s (34 spikes/s). At 25 Hz, passive leakage dominates and prevents threshold crossing (0 spikes/s).">
+              <div class="gallery-img-container">
+                <img src="assets/spiking-neuron-simulation.jpg" alt="ngspice Two-Transistor Spiking Neuron Simulation Waveforms" class="gallery-thumb">
+                <span class="gallery-zoom-badge">🔍 Zoom Simulation</span>
+              </div>
+              <div class="gallery-info">
+                <strong>ngspice Simulation: 50 Hz &amp; 100 Hz Pulse Trains</strong>
+                <span>Capacitor voltage VMEM integration, 1.9 V threshold &amp; discrete spike output OUT</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -623,7 +651,7 @@
                 <th>Benchmark Test</th>
                 <th>Analytical / Theory</th>
                 <th>JavaScript Model</th>
-                <th>LTspice Simulation</th>
+                <th>SPICE Simulation</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -660,7 +688,7 @@
                 <td><strong>Spiking Neuron Firing Period</strong></td>
                 <td>69.31 ms formula (T = RC &middot; ln[IR / (IR &minus; V<sub>th</sub>)])</td>
                 <td>69.30 ms sim</td>
-                <td>n/a</td>
+                <td>16 spk/s @ 50 Hz, 34 spk/s @ 100 Hz (ngspice)</td>
                 <td><span class="badge-status match">Match</span></td>
               </tr>
             </tbody>

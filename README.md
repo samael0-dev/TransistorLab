@@ -23,6 +23,7 @@ Modern computing architectures originate from the precise manipulation of solid-
      * *Step Function:* Implements a discrete Heaviside threshold, modeling ideal binary firing behavior.
      * *Sigmoid Function:* Maps inputs onto a continuous open interval $(0, 1)$, modeling normalized activation rates.
    * **Leaky Integrate-and-Fire (LIF Model):** Models the sub-threshold membrane dynamics of a biological neuron using an equivalent RC circuit. Integrated via Euler steps ($v(t+\Delta t) = v(t) + \frac{\Delta t}{C}(I(t) - \frac{v(t)}{R})$), the membrane potential ($v$) continuously dissipates charge through passive leakage while integrating input currents. When potential reaches the threshold voltage ($v_{th}$), the system fires a discrete action potential and resets to baseline.
+   * **Bench Verification:** KiCad schematic (`spiking-neuron-schematic.jpg`) and ngspice transient simulation (`spiking-neuron-simulation.jpg`) demonstrating discrete temporal spike emission (16 spikes/s @ 50 Hz, 34 spikes/s @ 100 Hz) via a complementary BC547/BC557 regenerative pair.
 
 ---
 
@@ -32,7 +33,7 @@ Modern computing architectures originate from the precise manipulation of solid-
 | :--- | :--- | :--- |
 | **Module 1: Digital** | BJT piecewise inverter, NOT/NAND/NOR resistor-transistor logic, 4-bit ripple adder | $V_{in}$ slider, dynamic transfer curve, physical transistor states, live carry-ripple pipeline, LTspice DC Sweep (`bjt-vtc-simulation.jpeg`) |
 | **Module 2: Analog Common-Emitter Amplifier** | Small-signal transconductance $g_m$, effective load $R_C \parallel R_L$, gain $A_v = -g_m (R_C \parallel R_L)$, supply rail clipping | Dual-trace oscilloscope comparing $v_{in}(t)$ and inverted $v_{out}(t)$, clipping state indicators, LTspice schematic & transient captures (`ce-amplifier-schematic.jpeg`, `ce-output-waveform.jpeg`) |
-| **Module 3: Neural & Biophysical Models** | Affine transform $z = \mathbf{w}^T \mathbf{x} + b$, Step & Sigmoid functions; LIF leaky RC membrane Euler integration | Perceptron activation response, continuous vs. discrete thresholding, temporal membrane potential trace with spike markers |
+| **Module 3: Neural & Biophysical Models** | Affine transform $z = \mathbf{w}^T \mathbf{x} + b$, Step & Sigmoid functions; LIF leaky RC membrane Euler integration | Perceptron activation response, continuous vs. discrete thresholding, temporal membrane potential trace with spike markers, KiCad schematic & ngspice captures (`spiking-neuron-schematic.jpg`, `spiking-neuron-simulation.jpg`) |
 
 ---
 
@@ -55,7 +56,9 @@ ANALOG/
 │   ├── bjt-vtc-simulation.jpeg       # LTspice BJT VTC transfer curve
 │   ├── ce-amplifier-schematic.jpeg   # LTspice CE amplifier schematic
 │   ├── ce-input-waveform.jpeg        # LTspice input sine waveform
-│   └── ce-output-waveform.jpeg       # LTspice amplified inverted waveform
+│   ├── ce-output-waveform.jpeg       # LTspice amplified inverted waveform
+│   ├── spiking-neuron-schematic.jpg  # KiCad two-transistor spiking neuron schematic
+│   └── spiking-neuron-simulation.jpg # ngspice 50 Hz & 100 Hz spiking neuron simulation
 ├── docs/
 │   └── TransistorLab_Final_Project_Report.pdf # Comprehensive project report
 ├── package.json         # Module definition & modern subpath exports mapping
