@@ -38,15 +38,13 @@ const state = {
   gain: 159.1,
   // Module 3
   perceptron: {
-    x: [1.0, 0.5, 0.2],
-    w: [0.8, -0.5, 1.2],
-    b: -0.3,
-    act: 'sigmoid'
+    a: 0,
+    b: 0,
+    gate: 'NAND'
   },
   lif: {
     rate: 50,
-    vth: 1.0,
-    mode: 'pulses'
+    vth: 1.0
   }
 };
 
@@ -80,6 +78,7 @@ function initApp() {
   initNeuronModule();
   initLIFModule();
   initLightboxModal();
+  initScrollEffects();
 }
 
 /* ============================================================
@@ -283,9 +282,189 @@ function initThemeAndNav() {
         });
       }
     });
+
+    // The last section is too short to reach the top, so highlight it at the page bottom
+    const atPageBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+    if (atPageBottom && navLinks.length) {
+      navLinks.forEach((link, i) => link.classList.toggle('active', i === navLinks.length - 1));
+    }
   };
 
   window.addEventListener('scroll', onScroll, { passive: true });
+}
+
+/* ============================================================
+ * Scroll Effects: growing titles + side section rail
+ * ============================================================ */
+function initScrollEffects() {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const wideEnough = window.matchMedia('(min-width: 700px)');
+  const navbarHeight = () => {
+    const nav = document.querySelector('.navbar');
+    return nav ? nav.offsetHeight : 60;
+  };
+
+  /* ---- 1. Titles grow as they reach the reading line, shrink as they leave ---- */
+  const titles = Array.from(document.querySelectorAll(
+    '.section-intro-block h2, .submodule-intro h3'
+  ));
+  titles.forEach(t => t.classList.add('scroll-title'));
+
+  const MAX_GROW = { H2: 0.16, H3: 0.12 }; // +16% / +12% at the reading line
+
+  const updateTitles = () => {
+    if (reduceMotion.matches || !wideEnough.matches) {
+      titles.forEach(t => {
+        t.style.setProperty('--title-scale', '1');
+        t.classList.remove('title-in-focus');
+      });
+      return;
+    }
+    const top = navbarHeight();
+    const readingLine = top + (window.innerHeight - top) * 0.3; // 30% down the visible area
+    const range = window.innerHeight * 0.35;
+    titles.forEach(t => {
+      const r = t.getBoundingClientRect();
+      const d = Math.abs(r.top + r.height / 2 - readingLine);
+      let k = Math.max(0, 1 - d / range);
+      k = k * k * (3 - 2 * k); // smoothstep, so it eases in and out
+      t.style.setProperty('--title-scale', (1 + (MAX_GROW[t.tagName] || 0.1) * k).toFixed(3));
+      t.classList.toggle('title-in-focus', k > 0.6);
+    });
+  };
+
+  /* ---- 2. Side rail: one stop per section, fill shows progress, click or drag to jump ---- */
+  const navLinks = Array.from(document.querySelectorAll('#main-nav a'));
+  const stops = navLinks
+    .map(a => ({ id: a.getAttribute('href').slice(1), label: a.textContent.trim() }))
+    .filter(s => document.getElementById(s.id));
+
+  const rail = document.createElement('nav');
+  rail.className = 'section-rail';
+  rail.setAttribute('aria-label', 'Jump to section');
+  rail.innerHTML = `
+    <div class="rail-track" aria-hidden="true"><div class="rail-fill"></div></div>
+    <ol class="rail-stops">
+      ${stops.map(s => `
+        <li>
+          <a class="rail-stop" href="#${s.id}" data-target="${s.id}" draggable="false">
+            <span class="rail-label">${s.label}</span>
+            <span class="rail-dot" aria-hidden="true"></span>
+          </a>
+        </li>`).join('')}
+    </ol>`;
+  document.body.appendChild(rail);
+
+  const track = rail.querySelector('.rail-track');
+  const fill = rail.querySelector('.rail-fill');
+  const stopEls = Array.from(rail.querySelectorAll('.rail-stop'));
+  const offset = () => navbarHeight() + 12;
+  const sectionTops = () => stops.map(s =>
+    document.getElementById(s.id).getBoundingClientRect().top + window.scrollY - offset()
+  );
+  const atBottom = () => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+
+  // Scroll position -> rail fraction (0..1), piecewise so each dot lines up with its section
+  const currentFraction = () => {
+    const tops = sectionTops();
+    const n = tops.length;
+    if (n < 2) return 0;
+    if (atBottom()) return 1;
+    const y = window.scrollY + 1;
+    if (y <= tops[0]) return 0;
+    for (let i = 0; i < n - 1; i++) {
+      if (y < tops[i + 1]) return (i + (y - tops[i]) / (tops[i + 1] - tops[i])) / (n - 1);
+    }
+    return 1;
+  };
+
+  // Rail fraction -> page scroll position (inverse of the above)
+  const scrollForFraction = f => {
+    const tops = sectionTops();
+    const n = tops.length;
+    const x = Math.min(Math.max(f, 0), 1) * (n - 1);
+    const i = Math.min(Math.floor(x), n - 2);
+    return tops[i] + (x - i) * (tops[i + 1] - tops[i]);
+  };
+
+  const updateRail = () => {
+    const f = currentFraction();
+    fill.style.height = `${(f * 100).toFixed(2)}%`;
+    // Same rule as the top menu: the last section whose top has passed just below the navbar
+    const probe = window.scrollY + navbarHeight() + 40;
+    let active = 0;
+    stops.forEach((s, i) => {
+      const el = document.getElementById(s.id);
+      if (el.getBoundingClientRect().top + window.scrollY <= probe) active = i;
+    });
+    if (atBottom()) active = stops.length - 1;
+    stopEls.forEach((el, i) => {
+      el.classList.toggle('active', i === active);
+      if (i === active) el.setAttribute('aria-current', 'true');
+      else el.removeAttribute('aria-current');
+    });
+  };
+
+  let suppressClick = false; // set when a drag ends on a dot, so it doesn't also jump
+  stopEls.forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault();
+      if (suppressClick) { suppressClick = false; return; }
+      const target = document.getElementById(el.dataset.target);
+      if (!target) return;
+      window.scrollTo({
+        top: Math.max(0, target.getBoundingClientRect().top + window.scrollY - offset()),
+        behavior: reduceMotion.matches ? 'auto' : 'smooth'
+      });
+      history.pushState(null, '', `#${el.dataset.target}`);
+    });
+  });
+
+  // Click or drag along the track to scrub through the page
+  const stopsList = rail.querySelector('.rail-stops');
+  const fractionFromPointer = e => {
+    const r = track.getBoundingClientRect();
+    return (e.clientY - r.top) / r.height;
+  };
+  // 'instant' overrides the page's CSS smooth scrolling so the page follows the pointer
+  const scrub = e => window.scrollTo({ top: Math.max(0, scrollForFraction(fractionFromPointer(e))), behavior: 'instant' });
+  rail.addEventListener('dragstart', e => e.preventDefault()); // stop the browser dragging the link itself
+  let pressed = false, dragging = false, startY = 0, onDot = false;
+  stopsList.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    pressed = true; dragging = false; startY = e.clientY;
+    onDot = !!e.target.closest('.rail-stop');
+  });
+  stopsList.addEventListener('pointermove', e => {
+    if (!pressed) return;
+    if (!dragging && Math.abs(e.clientY - startY) > 4) {
+      dragging = true;
+      rail.classList.add('dragging');
+      stopsList.setPointerCapture(e.pointerId);
+    }
+    if (dragging) scrub(e);
+  });
+  const endDrag = e => {
+    if (pressed && !dragging && !onDot && e.type === 'pointerup') scrub(e); // plain click on the track
+    if (dragging && onDot) {
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 0); // only swallow the click that ends this drag
+    }
+    pressed = false; dragging = false;
+    rail.classList.remove('dragging');
+  };
+  stopsList.addEventListener('pointerup', endDrag);
+  stopsList.addEventListener('pointercancel', endDrag);
+
+  /* ---- shared scroll loop ---- */
+  let ticking = false;
+  const onFrame = () => { ticking = false; updateTitles(); updateRail(); };
+  const request = () => { if (!ticking) { ticking = true; requestAnimationFrame(onFrame); } };
+  window.addEventListener('scroll', request, { passive: true });
+  window.addEventListener('resize', request);
+  reduceMotion.addEventListener?.('change', request);
+  wideEnough.addEventListener?.('change', request);
+  onFrame();
 }
 
 /* ============================================================
@@ -1153,193 +1332,81 @@ function initAmpModule() {
 }
 
 /* ============================================================
- * Module 3.1: Artificial Perceptron & Activation Plot
+ * Module 3.1: A Neuron as a Logic Gate (step-activation perceptron)
  * ============================================================ */
 function initNeuronModule() {
-  const inputs = ['x1', 'x2', 'x3'].map(id => document.getElementById(id));
-  const weights = ['w1', 'w2', 'w3'].map(id => document.getElementById(id));
-  const biasInput = document.getElementById('bias');
-  const actSelect = document.getElementById('activation-select');
-  const actBadge = document.getElementById('activation-description-badge');
-  const canvas = document.getElementById('neuronChart');
+  const tabs = document.querySelectorAll('#neuron-gate-tabs .tab-btn');
+  const btnA = document.getElementById('neuron-a');
+  const btnB = document.getElementById('neuron-b');
+  const outEl = document.getElementById('neuron-out');
+  const outLabel = document.getElementById('neuron-out-label');
+  const weightsEl = document.getElementById('neuron-weights');
+  const sumEl = document.getElementById('neuron-sum');
+  const truthEl = document.getElementById('neuron-truth-table');
+  if (!btnA || !btnB || !outEl) return;
 
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
+  // Weights and bias that make one step-activation neuron behave like each gate
+  const PRESETS = {
+    AND:  { w: [1, 1],   b: -1.5 },
+    OR:   { w: [1, 1],   b: -0.5 },
+    NAND: { w: [-1, -1], b: 1.5 }
+  };
 
-  let currentZ = 0;
-  let isSaturated = false;
+  const fmt = n => (n < 0 ? `−${Math.abs(n)}` : `${n}`);          // proper minus sign
+  const signed = n => (n < 0 ? `− ${Math.abs(n)}` : `+ ${n}`);
 
-  const saturationArrowPlugin = {
-    id: 'saturationArrow',
-    afterDatasetsDraw(chart) {
-      if (!isSaturated) return;
-      const meta = chart.getDatasetMeta(1);
-      if (!meta || !meta.data || !meta.data[0]) return;
-      const pt = meta.data[0];
-      const { ctx: c, chartArea } = chart;
-      if (!c || !chartArea) return;
+  const render = () => {
+    const { a, b, gate } = state.perceptron;
+    const p = PRESETS[gate];
+    const res = neuron([a, b], p.w, p.b, 'step');
 
-      c.save();
-      c.fillStyle = '#f59e0b';
-      c.font = '600 11px "Ubuntu Mono", monospace, sans-serif';
-      c.textBaseline = 'middle';
+    btnA.textContent = `${a}`;
+    btnA.className = `bit-toggle ${a ? 'on' : 'off'}`;
+    btnB.textContent = `${b}`;
+    btnB.className = `bit-toggle ${b ? 'on' : 'off'}`;
 
-      if (currentZ > 5) {
-        c.textAlign = 'right';
-        const label = `z = ${currentZ.toFixed(2)} \u2192`;
-        const xPos = Math.max(chartArea.left + 60, pt.x - 12);
-        c.fillText(label, xPos, pt.y);
-      } else if (currentZ < -5) {
-        c.textAlign = 'left';
-        const label = `\u2190 z = ${currentZ.toFixed(2)}`;
-        const xPos = Math.min(chartArea.right - 60, pt.x + 12);
-        c.fillText(label, xPos, pt.y);
-      }
-      c.restore();
+    outEl.textContent = res.y;
+    if (outLabel) outLabel.textContent = res.y ? 'fires' : 'stays quiet';
+
+    if (weightsEl) {
+      weightsEl.innerHTML = `
+        <span class="neuron-chip">Weight A <strong>${fmt(p.w[0])}</strong></span>
+        <span class="neuron-chip">Weight B <strong>${fmt(p.w[1])}</strong></span>
+        <span class="neuron-chip">Bias <strong>${p.b > 0 ? '+' : ''}${fmt(p.b)}</strong></span>`;
+    }
+
+    if (sumEl) {
+      sumEl.innerHTML = `Sum = (${fmt(p.w[0])} &times; ${a}) + (${fmt(p.w[1])} &times; ${b}) ${signed(p.b)}
+        = <strong>${fmt(Number(res.z.toFixed(2)))}</strong>
+        <span class="neuron-verdict">${res.z >= 0 ? '&ge; 0 → output 1' : '&lt; 0 → output 0'}</span>`;
+    }
+
+    if (truthEl) {
+      const rows = [[0, 0], [0, 1], [1, 0], [1, 1]].map(([ra, rb]) => {
+        const r = neuron([ra, rb], p.w, p.b, 'step');
+        return `<tr class="${ra === a && rb === b ? 'active-row' : ''}">
+            <td>${ra}</td><td>${rb}</td><td>${fmt(Number(r.z.toFixed(2)))}</td><td><strong>${r.y}</strong></td>
+          </tr>`;
+      }).join('');
+      truthEl.innerHTML = `
+        <table class="truth-table">
+          <thead><tr><th>A</th><th>B</th><th>Sum</th><th>Output</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
     }
   };
 
-  const tc = getThemeColors();
-
-  // Tick formatter ensuring zero prints as '0' and never '-0.0' or '-0'
-  const cleanTickFormatter = (v) => {
-    const val = Number(v);
-    if (Math.abs(val) < 1e-6 || Object.is(val, -0) || Object.is(val, -0.0)) {
-      return '0';
-    }
-    return (val % 1 === 0) ? String(val) : val.toFixed(1);
-  };
-
-  neuronChartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
-      datasets: [
-        {
-          label: 'Activation Function f(z)',
-          data: [],
-          borderColor: tc.ch2Color,
-          borderWidth: 2.2,
-          pointRadius: 0,
-          tension: 0.1,
-          fill: false
-        },
-        {
-          label: 'Operating Point',
-          data: [{ x: 0, y: 0.5 }],
-          backgroundColor: tc.opPointBg,
-          borderColor: tc.opPointBorder,
-          borderWidth: 2,
-          pointRadius: 6,
-          pointHoverRadius: 8,
-          showLine: false
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      resizeDelay: 50,
-      scales: {
-        x: {
-          type: 'linear',
-          min: -5,
-          max: 5,
-          title: { display: true, text: 'Affine Sum z = wTx + b', color: tc.axisTitleColor },
-          grid: { color: tc.gridColor },
-          ticks: {
-            color: tc.tickColor,
-            stepSize: 1.0,
-            callback: cleanTickFormatter
-          }
-        },
-        y: {
-          min: -0.2,
-          max: 1.2,
-          title: { display: true, text: 'Output y = f(z)', color: tc.ch2Color },
-          grid: { color: tc.gridColor },
-          ticks: {
-            color: tc.tickColor,
-            stepSize: 0.2,
-            callback: cleanTickFormatter
-          }
-        }
-      },
-      plugins: {
-        legend: { labels: { color: tc.legendColor, boxWidth: 12 } }
-      }
-    },
-    plugins: [saturationArrowPlugin]
-  });
-
-  const updateNeuron = () => {
-    const x = inputs.map(el => (el ? parseFloat(el.value) || 0 : 0));
-    const w = weights.map(el => (el ? parseFloat(el.value) || 0 : 0));
-    const b = biasInput ? parseFloat(biasInput.value) || 0 : 0;
-    const act = actSelect ? actSelect.value : 'sigmoid';
-
-    // Update slider readouts
-    ['x1', 'x2', 'x3'].forEach((id, i) => {
-      const disp = document.getElementById(`${id}-disp`);
-      if (disp) disp.textContent = x[i].toFixed(2);
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      state.perceptron.gate = tab.getAttribute('data-ngate');
+      render();
     });
-    ['w1', 'w2', 'w3'].forEach((id, i) => {
-      const disp = document.getElementById(`${id}-disp`);
-      if (disp) disp.textContent = w[i].toFixed(2);
-    });
-    const bDisp = document.getElementById('bias-disp');
-    if (bDisp) bDisp.textContent = b.toFixed(2);
-
-    const res = neuron(x, w, b, act);
-    const zEl = document.getElementById('neuron-z');
-    const yEl = document.getElementById('neuron-y');
-    if (zEl) zEl.textContent = res.z.toFixed(4);
-    if (yEl) yEl.textContent = res.y.toFixed(4);
-
-    if (actBadge && ACTIVATION_META[act]) {
-      actBadge.textContent = `${ACTIVATION_META[act].name}: ${ACTIVATION_META[act].description}`;
-    }
-
-    // Dynamic x-axis widening: if z is outside [-5, 5], widen x-axis so operating point is fully visible
-    const baseMin = -5;
-    const baseMax = 5;
-    const xMin = Math.min(baseMin, Math.floor(res.z - 1));
-    const xMax = Math.max(baseMax, Math.ceil(res.z + 1));
-
-    currentZ = res.z;
-    isSaturated = (res.z > baseMax || res.z < baseMin);
-
-    neuronChartInstance.options.scales.x.min = xMin;
-    neuronChartInstance.options.scales.x.max = xMax;
-    neuronChartInstance.options.scales.x.ticks.stepSize = (xMax - xMin) > 12 ? 2.0 : 1.0;
-
-    // Dynamically sample activation curve across full [xMin, xMax]
-    const fn = ACTIVATIONS[act] || ACTIVATIONS.sigmoid;
-    const step = Math.max(0.1, (xMax - xMin) / 100);
-    const curve = [];
-    for (let zv = xMin; zv <= xMax + 1e-5; zv += step) {
-      curve.push({ x: parseFloat(zv.toFixed(2)), y: fn(zv) });
-    }
-
-    if (act === 'relu') {
-      neuronChartInstance.options.scales.y.max = Math.max(5.2, Math.ceil(res.y + 1));
-      neuronChartInstance.options.scales.y.ticks.stepSize = 1.0;
-    } else {
-      neuronChartInstance.options.scales.y.max = 1.2;
-      neuronChartInstance.options.scales.y.ticks.stepSize = 0.2;
-    }
-
-    neuronChartInstance.data.datasets[0].data = curve;
-    neuronChartInstance.data.datasets[1].data = [{ x: res.z, y: res.y }];
-    neuronChartInstance.update('none');
-  };
-
-  [...inputs, ...weights, biasInput, actSelect].filter(Boolean).forEach(el => {
-    el.addEventListener('input', updateNeuron);
-    if (el.tagName === 'SELECT') {
-      el.addEventListener('change', updateNeuron);
-    }
   });
-  updateNeuron();
+  btnA.addEventListener('click', () => { state.perceptron.a ^= 1; render(); });
+  btnB.addEventListener('click', () => { state.perceptron.b ^= 1; render(); });
+  render();
 }
 
 /* ============================================================
@@ -1347,12 +1414,9 @@ function initNeuronModule() {
  * ============================================================ */
 function initLIFModule() {
   const rateSlider = document.getElementById('lif-rate');
-  const vthSlider = document.getElementById('lif-vth');
-  const modeSelect = document.getElementById('lif-mode');
   const rateDisp = document.getElementById('lif-rate-disp');
-  const vthDisp = document.getElementById('lif-vth-disp');
   const canvas = document.getElementById('lifChart');
-  if (!canvas) return;
+  if (!canvas || !rateSlider) return;
 
   const ctx = canvas.getContext('2d');
 
@@ -1363,7 +1427,7 @@ function initLIFModule() {
     data: {
       datasets: [
         {
-          label: 'Membrane Potential V(t) [V]',
+          label: 'Capacitor voltage V(t) [V]',
           data: [],
           borderColor: tc.ch2Color,
           backgroundColor: tc.ch2Fill,
@@ -1373,7 +1437,7 @@ function initLIFModule() {
           fill: true
         },
         {
-          label: 'Threshold Vth [V]',
+          label: 'Threshold (1 V)',
           data: [],
           borderColor: tc.refColor,
           borderWidth: 1.5,
@@ -1382,7 +1446,7 @@ function initLIFModule() {
           fill: false
         },
         {
-          label: 'Action Potential Spikes (δ)',
+          label: 'Spikes',
           data: [],
           backgroundColor: tc.ch1Color,
           borderColor: '#ffffff',
@@ -1414,7 +1478,7 @@ function initLIFModule() {
         y: {
           min: 0,
           max: 2.2,
-          title: { display: true, text: 'Membrane Potential (V)', color: tc.ch2Color },
+          title: { display: true, text: 'Voltage (V)', color: tc.ch2Color },
           grid: { color: tc.gridColor },
           ticks: { color: tc.tickColor, stepSize: 0.5 }
         }
@@ -1427,17 +1491,16 @@ function initLIFModule() {
 
   const updateLIF = () => {
     const rate = parseFloat(rateSlider.value);
-    const vth = parseFloat(vthSlider.value);
-    const mode = modeSelect.value;
+    const vth = state.lif.vth; // fixed 1 V threshold
+    state.lif.rate = rate;
+    if (rateDisp) rateDisp.textContent = `${rate} Hz`;
 
-    rateDisp.textContent = `${rate} Hz`;
-    vthDisp.textContent = `${vth.toFixed(2)} V`;
+    const res = lif(1e-6, 100e3, vth, rate, { mode: 'pulses' });
 
-    const res = lif(1e-6, 100e3, vth, rate, { mode });
-
-    document.getElementById('lif-tau').textContent = `${(res.tau * 1000).toFixed(0)} ms`;
-    document.getElementById('lif-spikes').textContent = res.spikes.length;
-    document.getElementById('lif-firing-rate').textContent = `${res.outputRate.toFixed(1)} Hz`;
+    const spikesEl = document.getElementById('lif-spikes');
+    const rateEl = document.getElementById('lif-firing-rate');
+    if (spikesEl) spikesEl.textContent = res.spikes.length;
+    if (rateEl) rateEl.textContent = `${res.outputRate.toFixed(0)}`;
 
     // Time in milliseconds (0 to 500 ms)
     lifChartInstance.data.datasets[0].data = res.t.map((ti, idx) => ({
@@ -1461,8 +1524,6 @@ function initLIFModule() {
   };
 
   rateSlider.addEventListener('input', updateLIF);
-  vthSlider.addEventListener('input', updateLIF);
-  modeSelect.addEventListener('change', updateLIF);
   updateLIF();
 }
 
@@ -1548,5 +1609,6 @@ export {
   initAmpModule,
   initNeuronModule,
   initLIFModule,
-  initLightboxModal
+  initLightboxModal,
+  initScrollEffects
 };
